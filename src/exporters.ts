@@ -210,24 +210,25 @@ export const downloadPng = (
 
 const getPngUsageFromLayout = (matrix: BeadMatrix, palette: PaletteColor[], layout: PatternLayout, fallbackUsage: UsageRow[]) => {
   const colorById = new Map(palette.map((color) => [color.id, color]));
-  const h2 = palette.find((color) => color.code === "H2");
-  if (!h2) {
+  if (layout.drawWidth <= 0 || layout.drawHeight <= 0) {
     return fallbackUsage;
   }
-  const counts = new Map<string, number>([[h2.id, layout.width * layout.height - layout.drawWidth * layout.drawHeight]]);
+  const counts = new Map<string, number>();
   for (let y = 0; y < layout.drawHeight; y += 1) {
     for (let x = 0; x < layout.drawWidth; x += 1) {
-      const colorId = matrix[layout.sourceY + y]?.[layout.sourceX + x]?.colorId ?? h2.id;
+      const colorId = matrix[layout.sourceY + y]?.[layout.sourceX + x]?.colorId;
+      if (!colorId) continue;
       counts.set(colorId, (counts.get(colorId) ?? 0) + 1);
     }
   }
-  return Array.from(counts.entries())
-    .map(([colorId, count]) => {
-      const color = colorById.get(colorId) ?? h2;
-      return { color, count };
-    })
-    .filter((row) => row.count > 0)
-    .sort((a, b) => b.count - a.count);
+  const rows: UsageRow[] = [];
+  counts.forEach((count, colorId) => {
+    const color = colorById.get(colorId);
+    if (color && count > 0) {
+      rows.push({ color, count });
+    }
+  });
+  return rows.sort((a, b) => b.count - a.count);
 };
 
 const renderPngCanvasWithUsage = (patternCanvas: HTMLCanvasElement, usage: UsageRow[]) => {
