@@ -1,4 +1,4 @@
-import { MINI_BEAD_SPEC, formatPhysicalSize, getBoardSpec } from "./specs";
+import { getBoardSpec } from "./specs";
 import type { BeadMatrix, BoardSpec, PaletteColor, UsageRow } from "./types";
 
 export type RenderOptions = {
@@ -295,7 +295,10 @@ const renderPngCanvasWithUsage = (patternCanvas: HTMLCanvasElement, usage: Usage
   return canvas;
 };
 
-export const openPdfPrintView = (
+/*
+ * v1 暂不需要 PDF 导出，先保留实现代码但不导出/不调用。
+ * 后续恢复时，需要同步恢复 main.tsx 中的 openPdfPrintView 导入和 PDF 按钮。
+const openPdfPrintView = (
   matrix: BeadMatrix,
   palette: PaletteColor[],
   usage: UsageRow[],
@@ -368,6 +371,7 @@ export const openPdfPrintView = (
   </html>`);
   popup.document.close();
 };
+*/
 
 const getReadableTextColor = (hex: string) => {
   const normalized = hex.replace("#", "");
@@ -377,10 +381,11 @@ const getReadableTextColor = (hex: string) => {
   return r * 0.299 + g * 0.587 + b * 0.114 > 150 ? "#111827" : "#ffffff";
 };
 
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+// v1 PDF 导出暂不启用。恢复 openPdfPrintView 时一并恢复 HTML 转义函数。
+// const escapeHtml = (value: string) =>
+//   value
+//     .replace(/&/g, "&amp;")
+//     .replace(/</g, "&lt;")
+//     .replace(/>/g, "&gt;")
+//     .replace(/"/g, "&quot;")
+//     .replace(/'/g, "&#039;");

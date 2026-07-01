@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import {
   Download,
   FileImage,
-  FileText,
   Grid2X2,
   ImagePlus,
   Paintbrush,
@@ -15,7 +14,7 @@ import {
 import { BOARD_SPECS, MINI_BEAD_SPEC, formatPhysicalSize, getBoardSpec } from "./specs";
 import { DEFAULT_PALETTE } from "./palette";
 import { cloneMatrix, convertImageToMatrix, loadImage, summarizeUsage } from "./conversion";
-import { downloadPng, openPdfPrintView } from "./exporters";
+import { downloadPng } from "./exporters";
 import type { BeadMatrix, ConversionOptions } from "./types";
 import "./styles.css";
 
@@ -400,6 +399,8 @@ function App() {
                 <FileImage size={18} />
                 PNG
               </button>
+              {/*
+                v1 暂不提供 PDF 导出。保留按钮代码，后续恢复 PDF 功能时再打开。
               <button
                 onClick={() => matrix.length && openPdfPrintView(matrix, palette, usage, options.boardId, imageMeta.name)}
                 disabled={!matrix.length}
@@ -407,6 +408,7 @@ function App() {
                 <FileText size={18} />
                 PDF
               </button>
+              */}
             </div>
           </div>
 
