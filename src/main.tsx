@@ -158,21 +158,30 @@ function App() {
     }
   };
 
-  const generate = () => {
+  const generateWithOptions = (nextOptions: ConversionOptions) => {
     if (!image) {
       setMessage("请先上传图片。");
       return;
     }
     try {
-      const next = convertImageToMatrix(image, options, palette);
+      const next = convertImageToMatrix(image, nextOptions, palette);
       setMatrix(next);
       setOriginalMatrix(cloneMatrix(next));
       setUndoStack([]);
       setRedoStack([]);
       setSelectedColorId(next[0]?.[0]?.colorId ?? palette[0].id);
-      setMessage(`已生成 ${options.width} x ${options.height} 格图纸。`);
+      setMessage(`已生成 ${nextOptions.width} x ${nextOptions.height} 格图纸。`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "生成失败。");
+    }
+  };
+
+  const generate = () => generateWithOptions(options);
+
+  const updateOptionsAndRegenerate = (nextOptions: ConversionOptions) => {
+    setOptions(nextOptions);
+    if (image) {
+      generateWithOptions(nextOptions);
     }
   };
 
@@ -338,7 +347,7 @@ function App() {
             <input
               type="checkbox"
               checked={options.dithering}
-              onChange={(event) => setOptions({ ...options, dithering: event.target.checked })}
+              onChange={(event) => updateOptionsAndRegenerate({ ...options, dithering: event.target.checked })}
             />
             开启 Floyd-Steinberg 抖动
           </label>
@@ -347,7 +356,7 @@ function App() {
             <input
               type="checkbox"
               checked={options.pixelArtMode}
-              onChange={(event) => setOptions({ ...options, pixelArtMode: event.target.checked })}
+              onChange={(event) => updateOptionsAndRegenerate({ ...options, pixelArtMode: event.target.checked })}
             />
             像素图模式：保留硬边缘
           </label>
