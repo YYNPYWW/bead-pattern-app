@@ -6,6 +6,100 @@ export type RenderOptions = {
   showCodes: boolean;
   showBoardLines: boolean;
   cellSize?: number;
+  padToBoard?: boolean;
+  showCoordinates?: boolean;
+};
+
+type PatternLayout = {
+  width: number;
+  height: number;
+  offsetX: number;
+  offsetY: number;
+  sourceX: number;
+  sourceY: number;
+  drawWidth: number;
+  drawHeight: number;
+};
+
+const getPatternLayout = (
+  width: number,
+  height: number,
+  boardId: BoardSpec["id"],
+  padToBoard?: boolean,
+): PatternLayout => {
+  if (!padToBoard) {
+    return { width, height, offsetX: 0, offsetY: 0, sourceX: 0, sourceY: 0, drawWidth: width, drawHeight: height };
+  }
+  const board = getBoardSpec(boardId);
+  const drawWidth = Math.min(width, board.cells);
+  const drawHeight = Math.min(height, board.cells);
+  return {
+    width: board.cells,
+    height: board.cells,
+    offsetX: Math.floor((board.cells - drawWidth) / 2),
+    offsetY: Math.floor((board.cells - drawHeight) / 2),
+    sourceX: Math.floor((width - drawWidth) / 2),
+    sourceY: Math.floor((height - drawHeight) / 2),
+    drawWidth,
+    drawHeight,
+  };
+};
+
+const getGridMarkerInset = (board: BoardSpec) => (board.cells === 52 ? 1 : 2);
+
+const drawGridLine = (
+  ctx: CanvasRenderingContext2D,
+  index: number,
+  end: number,
+  cellSize: number,
+  vertical: boolean,
+  boardCells: number,
+  markerInset: number,
+  originX: number,
+  originY: number,
+) => {
+  const boardPosition = index % boardCells;
+  const markerPosition = boardPosition - markerInset;
+  const isStart = markerPosition === 0;
+  const isFive = markerPosition > 0 && markerPosition % 5 === 0;
+  const isTen = isFive && markerPosition % 10 === 0;
+  ctx.setLineDash(isFive && !isTen ? [4, 4] : []);
+  ctx.strokeStyle = isStart || isTen ? "rgba(15, 23, 42, 0.5)" : isFive ? "rgba(15, 23, 42, 0.36)" : "rgba(20, 20, 20, 0.16)";
+  ctx.lineWidth = isStart || isTen ? 1.4 : 1;
+  ctx.beginPath();
+  if (vertical) {
+    ctx.moveTo(originX + index * cellSize + 0.5, originY);
+    ctx.lineTo(originX + index * cellSize + 0.5, originY + end);
+  } else {
+    ctx.moveTo(originX, originY + index * cellSize + 0.5);
+    ctx.lineTo(originX + end, originY + index * cellSize + 0.5);
+  }
+  ctx.stroke();
+};
+
+const drawCoordinates = (
+  ctx: CanvasRenderingContext2D,
+  renderSize: Pick<PatternLayout, "width" | "height">,
+  cellSize: number,
+  gutter: number,
+) => {
+  if (gutter <= 0) return;
+  const maxLabelLength = Math.max(renderSize.width, renderSize.height).toString().length;
+  const fontSize = Math.max(7, Math.min(10, Math.floor(cellSize * 0.62)));
+  ctx.fillStyle = "#334155";
+  ctx.font = `700 ${fontSize}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  ctx.textBaseline = "middle";
+
+  ctx.textAlign = "center";
+  for (let x = 0; x < renderSize.width; x += 1) {
+    const label = String(x + 1);
+    ctx.fillText(label, gutter + x * cellSize + cellSize / 2, gutter - 6);
+  }
+
+  ctx.textAlign = "right";
+  for (let y = 0; y < renderSize.height; y += 1) {
+    ctx.fillText(String(y + 1), gutter - 6, gutter + y * cellSize + cellSize / 2);
+  }
 };
 
 export const renderPatternCanvas = (
@@ -17,9 +111,15 @@ export const renderPatternCanvas = (
   const cellSize = options.cellSize ?? 16;
   const width = matrix[0]?.length ?? 0;
   const height = matrix.length;
+  const renderSize = getPatternLayout(width, height, boardId, options.padToBoard);
+  const board = getBoardSpec(boardId);
+  const maxCoordinate = Math.max(renderSize.width, renderSize.height);
+  const coordinateGutter = options.showCoordinates
+    ? Math.max(28, maxCoordinate.toString().length * Math.max(7, Math.floor(cellSize * 0.62)) + 14)
+    : 0;
   const canvas = document.createElement("canvas");
-  canvas.width = width * cellSize;
-  canvas.height = height * cellSize;
+  canvas.width = renderSize.width * cellSize + coordinateGutter;
+  canvas.height = renderSize.height * cellSize + coordinateGutter;
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     throw new Error("无法创建导出画布。");
@@ -27,53 +127,51 @@ export const renderPatternCanvas = (
   const colorById = new Map(palette.map((color) => [color.id, color]));
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawCoordinates(ctx, renderSize, cellSize, coordinateGutter);
 
-  matrix.forEach((row, y) => {
-    row.forEach((cell, x) => {
-      const color = colorById.get(cell.colorId);
+  for (let y = 0; y < renderSize.drawHeight; y += 1) {
+    for (let x = 0; x < renderSize.drawWidth; x += 1) {
+      const cell = matrix[renderSize.sourceY + y]?.[renderSize.sourceX + x];
+      const color = cell ? colorById.get(cell.colorId) : undefined;
       ctx.fillStyle = color?.hex ?? "#ffffff";
-      ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+      const drawX = coordinateGutter + (x + renderSize.offsetX) * cellSize;
+      const drawY = coordinateGutter + (y + renderSize.offsetY) * cellSize;
+      ctx.fillRect(drawX, drawY, cellSize, cellSize);
       if (options.showCodes && cellSize >= 14 && color) {
         ctx.fillStyle = getReadableTextColor(color.hex);
         ctx.font = `${Math.max(7, Math.floor(cellSize * 0.42))}px ui-monospace, SFMono-Regular, Menlo, monospace`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText(color.code.replace(/^0+/, ""), x * cellSize + cellSize / 2, y * cellSize + cellSize / 2);
+        ctx.fillText(color.code.replace(/^0+/, ""), drawX + cellSize / 2, drawY + cellSize / 2);
       }
-    });
-  });
-
-  if (options.showGrid) {
-    ctx.strokeStyle = "rgba(20, 20, 20, 0.18)";
-    ctx.lineWidth = 1;
-    for (let x = 0; x <= width; x += 1) {
-      ctx.beginPath();
-      ctx.moveTo(x * cellSize + 0.5, 0);
-      ctx.lineTo(x * cellSize + 0.5, canvas.height);
-      ctx.stroke();
-    }
-    for (let y = 0; y <= height; y += 1) {
-      ctx.beginPath();
-      ctx.moveTo(0, y * cellSize + 0.5);
-      ctx.lineTo(canvas.width, y * cellSize + 0.5);
-      ctx.stroke();
     }
   }
 
+  if (options.showGrid) {
+    const markerInset = getGridMarkerInset(board);
+    for (let x = 0; x <= renderSize.width; x += 1) {
+      drawGridLine(ctx, x, renderSize.height * cellSize, cellSize, true, board.cells, markerInset, coordinateGutter, coordinateGutter);
+    }
+    for (let y = 0; y <= renderSize.height; y += 1) {
+      drawGridLine(ctx, y, renderSize.width * cellSize, cellSize, false, board.cells, markerInset, coordinateGutter, coordinateGutter);
+    }
+    ctx.setLineDash([]);
+  }
+
   if (options.showBoardLines) {
-    const board = getBoardSpec(boardId);
+    ctx.setLineDash([]);
     ctx.strokeStyle = "#0f172a";
     ctx.lineWidth = 3;
-    for (let x = 0; x <= width; x += board.cells) {
+    for (let x = 0; x <= renderSize.width; x += board.cells) {
       ctx.beginPath();
-      ctx.moveTo(x * cellSize + 0.5, 0);
-      ctx.lineTo(x * cellSize + 0.5, canvas.height);
+      ctx.moveTo(coordinateGutter + x * cellSize + 0.5, coordinateGutter);
+      ctx.lineTo(coordinateGutter + x * cellSize + 0.5, coordinateGutter + renderSize.height * cellSize);
       ctx.stroke();
     }
-    for (let y = 0; y <= height; y += board.cells) {
+    for (let y = 0; y <= renderSize.height; y += board.cells) {
       ctx.beginPath();
-      ctx.moveTo(0, y * cellSize + 0.5);
-      ctx.lineTo(canvas.width, y * cellSize + 0.5);
+      ctx.moveTo(coordinateGutter, coordinateGutter + y * cellSize + 0.5);
+      ctx.lineTo(coordinateGutter + renderSize.width * cellSize, coordinateGutter + y * cellSize + 0.5);
       ctx.stroke();
     }
   }
@@ -89,13 +187,16 @@ export const downloadPng = (
   fileName: string,
 ) => {
   const cellSize = matrix[0]?.length > 90 ? 10 : 16;
+  const layout = getPatternLayout(matrix[0]?.length ?? 0, matrix.length, boardId, true);
   const patternCanvas = renderPatternCanvas(matrix, palette, boardId, {
     showGrid: true,
     showCodes: cellSize >= 14,
     showBoardLines: true,
+    padToBoard: true,
+    showCoordinates: true,
     cellSize,
   });
-  const canvas = renderPngCanvasWithUsage(patternCanvas, usage);
+  const canvas = renderPngCanvasWithUsage(patternCanvas, getPngUsageFromLayout(matrix, palette, layout, usage));
   canvas.toBlob((blob) => {
     if (!blob) return;
     const url = URL.createObjectURL(blob);
@@ -105,6 +206,28 @@ export const downloadPng = (
     link.click();
     URL.revokeObjectURL(url);
   });
+};
+
+const getPngUsageFromLayout = (matrix: BeadMatrix, palette: PaletteColor[], layout: PatternLayout, fallbackUsage: UsageRow[]) => {
+  const colorById = new Map(palette.map((color) => [color.id, color]));
+  const h2 = palette.find((color) => color.code === "H2");
+  if (!h2) {
+    return fallbackUsage;
+  }
+  const counts = new Map<string, number>([[h2.id, layout.width * layout.height - layout.drawWidth * layout.drawHeight]]);
+  for (let y = 0; y < layout.drawHeight; y += 1) {
+    for (let x = 0; x < layout.drawWidth; x += 1) {
+      const colorId = matrix[layout.sourceY + y]?.[layout.sourceX + x]?.colorId ?? h2.id;
+      counts.set(colorId, (counts.get(colorId) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts.entries())
+    .map(([colorId, count]) => {
+      const color = colorById.get(colorId) ?? h2;
+      return { color, count };
+    })
+    .filter((row) => row.count > 0)
+    .sort((a, b) => b.count - a.count);
 };
 
 const renderPngCanvasWithUsage = (patternCanvas: HTMLCanvasElement, usage: UsageRow[]) => {
