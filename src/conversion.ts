@@ -20,21 +20,125 @@ const nearestColor = (rgb: RGB, palette: PaletteColor[]) => {
   return best;
 };
 
-const chooseLimitedPalette = (pixels: RGB[], palette: PaletteColor[], maxColors: number) => {
+const colorSaturation = (rgb: RGB) => {
+  const max = Math.max(rgb.r, rgb.g, rgb.b);
+  const min = Math.min(rgb.r, rgb.g, rgb.b);
+  return (max - min) / 255;
+};
+
+const estimateBackgroundColor = (pixels: RGB[], width: number, height: number): RGB => {
+  const buckets = new Map<string, { count: number; rgb: RGB }>();
+  const addPixel = (x: number, y: number) => {
+    const pixel = pixels[y * width + x];
+    const key = `${Math.round(pixel.r / 24)}-${Math.round(pixel.g / 24)}-${Math.round(pixel.b / 24)}`;
+    const current = buckets.get(key);
+    if (current) {
+      current.count += 1;
+      current.rgb.r += pixel.r;
+      current.rgb.g += pixel.g;
+      current.rgb.b += pixel.b;
+    } else {
+      buckets.set(key, { count: 1, rgb: { ...pixel } });
+    }
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    addPixel(x, 0);
+    addPixel(x, height - 1);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    addPixel(0, y);
+    addPixel(width - 1, y);
+  }
+
+  const dominant = [...buckets.values()].sort((a, b) => b.count - a.count)[0];
+  if (!dominant) {
+    return { r: 255, g: 255, b: 255 };
+  }
+  return {
+    r: dominant.rgb.r / dominant.count,
+    g: dominant.rgb.g / dominant.count,
+    b: dominant.rgb.b / dominant.count,
+  };
+};
+
+const localEdgeStrength = (pixels: RGB[], width: number, height: number, x: number, y: number) => {
+  const current = pixels[y * width + x];
+  let total = 0;
+  let count = 0;
+  const compare = (nextX: number, nextY: number) => {
+    if (nextX < 0 || nextX >= width || nextY < 0 || nextY >= height) {
+      return;
+    }
+    total += Math.sqrt(colorDistance(current, pixels[nextY * width + nextX])) / 255;
+    count += 1;
+  };
+  compare(x + 1, y);
+  compare(x - 1, y);
+  compare(x, y + 1);
+  compare(x, y - 1);
+  return count ? Math.min(1, total / count) : 0;
+};
+
+const subjectWeight = (pixels: RGB[], width: number, height: number, index: number, background: RGB) => {
+  const pixel = pixels[index];
+  const x = index % width;
+  const y = Math.floor(index / width);
+  const centerX = (width - 1) / 2;
+  const centerY = (height - 1) / 2;
+  const maxDistance = Math.sqrt(centerX * centerX + centerY * centerY) || 1;
+  const centerBias = 1 - Math.min(1, Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2) / maxDistance);
+  const backgroundContrast = Math.min(1, Math.sqrt(colorDistance(pixel, background)) / 255);
+  const edge = localEdgeStrength(pixels, width, height, x, y);
+  const saturation = colorSaturation(pixel);
+
+  return 1 + backgroundContrast * 2.4 + edge * 2 + saturation * 1.2 + centerBias * 0.7;
+};
+
+const chooseLimitedPalette = (pixels: RGB[], palette: PaletteColor[], maxColors: number, width: number, height: number) => {
   if (maxColors >= palette.length) {
     return palette;
   }
 
-  const usage = new Map<string, number>();
+  const targetSize = Math.max(2, maxColors);
+  const background = estimateBackgroundColor(pixels, width, height);
+  const usage = new Map<string, { count: number; subjectScore: number }>();
   for (let i = 0; i < pixels.length; i += Math.max(1, Math.floor(pixels.length / 5000))) {
     const nearest = nearestColor(pixels[i], palette);
-    usage.set(nearest.id, (usage.get(nearest.id) ?? 0) + 1);
+    const current = usage.get(nearest.id) ?? { count: 0, subjectScore: 0 };
+    current.count += 1;
+    current.subjectScore += subjectWeight(pixels, width, height, i, background);
+    usage.set(nearest.id, current);
   }
 
-  const limited = [...palette]
-    .sort((a, b) => (usage.get(b.id) ?? 0) - (usage.get(a.id) ?? 0))
-    .slice(0, Math.max(2, maxColors));
-  return limited.length ? limited : palette.slice(0, Math.max(2, maxColors));
+  const rankedByArea = [...palette].sort((a, b) => (usage.get(b.id)?.count ?? 0) - (usage.get(a.id)?.count ?? 0));
+  const rankedBySubject = [...palette].sort(
+    (a, b) => (usage.get(b.id)?.subjectScore ?? 0) - (usage.get(a.id)?.subjectScore ?? 0),
+  );
+  const selected: PaletteColor[] = [];
+  const addColor = (color: PaletteColor, enforceSeparation: boolean) => {
+    if (selected.some((item) => item.id === color.id)) {
+      return;
+    }
+    if (enforceSeparation && selected.some((item) => colorDistance(item.rgb, color.rgb) < (targetSize <= 8 ? 900 : 400))) {
+      return;
+    }
+    selected.push(color);
+  };
+
+  if (rankedByArea[0]) {
+    addColor(rankedByArea[0], false);
+  }
+  for (const color of rankedBySubject) {
+    if (selected.length >= targetSize) break;
+    addColor(color, true);
+  }
+  for (const color of rankedBySubject) {
+    if (selected.length >= targetSize) break;
+    addColor(color, false);
+  }
+
+  return selected.length ? selected : palette.slice(0, targetSize);
 };
 
 export const loadImage = (file: File) =>
@@ -108,7 +212,7 @@ export const convertImageToMatrix = (
     }
   }
 
-  const limitedPalette = chooseLimitedPalette(pixels, activePalette, options.maxColors);
+  const limitedPalette = chooseLimitedPalette(pixels, activePalette, options.maxColors, options.width, options.height);
   const matrix: BeadMatrix = Array.from({ length: options.height }, () =>
     Array.from({ length: options.width }, () => ({ colorId: limitedPalette[0].id })),
   );
